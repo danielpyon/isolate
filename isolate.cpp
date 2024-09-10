@@ -2,12 +2,36 @@
 #include <vector>
 #include <iostream>
 #include <list>
+#include <sstream>
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
 #include <ncurses.h>
 
 using namespace std;
+
+const vector<string> g_argument_type_tags = { "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "float", "double" };
+
+struct ArgumentType {
+  int type_tag_idx = 0;
+
+  union {
+    int8_t i8_data;
+    int16_t i16_data;
+    int32_t i32_data;
+    int64_t i64_data;
+    uint8_t u8_data;
+    uint16_t u16_data;
+    uint32_t u32_data;
+    uint64_t u64_data;
+    float float_data;
+    double double_data;
+  } data;
+
+  ArgumentType(int idx) : type_tag_idx(idx) {}
+  ArgumentType() = delete;
+  ~ArgumentType() {}
+};
 
 /**
  * @brief prints program usage
@@ -28,7 +52,7 @@ int get_choice(const vector<string>& choices, const string& prompt) {
 
   while (true) {
     clear();
-    mvprintw(0, 1, prompt.c_str());    
+    mvprintw(0, 1, prompt.c_str());
     for (int i = 0; i < choices.size(); i++) {
       if (i == highlight) {
         attron(A_REVERSE);
@@ -143,61 +167,102 @@ int main(int argc, char* argv[]) {
 
     int choice = get_choice(choices, "Argument #1 Type:");
 
-    // clear the screen and print the user's choice
-    clear();
-    mvprintw(0, 0, "You chose: %s", choices[choice].c_str());
-    refresh();
-    getch();
-
+    vector<ArgumentType> arguments;
     if (choice == 0) {
-      const vector<string> choices = { "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "float", "double" };
-      switch (get_choice(choices, "Argument #1 Type:")) {
-        case 0:
-          int8_t val;
-          cin >> val;
-          break;
-        case 1:
-          break;
-        case 2:
-          break;
-        case 3:
-          break;
-        case 4:
-          break;
-        case 5:
-          break;
-        case 6:
-          break;
-        case 7:
-          break;
-        case 8:
-          break;
-        case 9:
-          break;
-        default:
-          break;
-      }
+      ArgumentType arg(get_choice(g_argument_type_tags, "Argument #1 Type:"));
 
-      string value;
+      const char* arg_value_dialog = "Argument #1 Value: ";
+      string arg_value;
+
+get_arg_value:
       while (true) {
-        cin >> value;
+        clear();
 
-        if (cin.fail()) {
-          cin.clear();
-          cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
-          cout << "Invalid input. Please enter a valid unsigned integer: ";
-        } else {
-          cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear any remaining input
+        mvprintw(0, 1, arg_value_dialog);
+        attron(A_REVERSE);
+        mvprintw(0, 1 + strlen(arg_value_dialog), "%s", arg_value.c_str());
+        attroff(A_REVERSE);
+
+        int c = getch();
+        if (c == '\n')
           break;
+
+        if ((c == KEY_BACKSPACE || c == 127 || c == 8) && arg_value.length() > 0) {
+          arg_value.pop_back();
+        } else if (isnumber(c) || c == '.') {
+          arg_value.push_back(c);
         }
+
+        refresh();
       }
 
-      clear();
-      mvprintw(0, 0, "You chose: %s", choices[choice].c_str());
-      refresh();
+      try {
+        switch (arg.type_tag_idx) {
+          case 0:
+            int tmp = stoi(arg_value);
+            if (tmp >= -128 && tmp <= 127)
+              arg.data.i8_data = tmp;
+            else
+              throw invalid_argument("value outside of int8_t bounds");
+            break;
+          case 1:
+            int tmp = stoi(arg_value);
+            if (tmp >= -65536 && tmp <= 65535)
+              arg.data.i8_data = tmp;
+            else
+              throw invalid_argument("value outside of int16_t bounds");
+            break;
+          case 2:
+            arg.data.i32_data = stoi(arg_value);
+            break;
+          case 3:
+            ss >> arg.data.i64_data;
+            break;
+          case 4:
+            ss >> arg.data.u8_data;
+            break;
+          case 5:
+            ss >> arg.data.u16_data;
+            break;
+          case 6:
+            ss >> arg.data.u32_data;
+            break;
+          case 7:
+            ss >> arg.data.u64_data;
+            break;
+          case 8:
+            ss >> arg.data.float_data;
+            break;
+          case 9:
+            ss >> arg.data.double_data;
+            break;
+          default:
+            cerr << "Invalid argument type\n";
+            fflush(stderr);
+            exit(EXIT_FAILURE);
+            break;
+        }
+      } catch (const invalid_argument& ia) {
+
+      } catch (const out_of_range& oor) {
+        
+      }
+
+      if (ss.fail()) {
+        clear();
+        printw("Invalid format! Press Enter to try again");
+        refresh();
+        getch();
+        goto get_arg_value;
+      } else {
+        arguments.push_back(arg);
+      }
     } else {
 
     }
+
+    clear();
+    refresh();
 
     getch(); // wait for user input
     endwin(); // end curses mode
