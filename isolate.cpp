@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <list>
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
@@ -8,8 +9,63 @@
 
 using namespace std;
 
+/**
+ * @brief prints program usage
+ */
 void print_usage(char* prog_name) {
   cerr << "Usage: " << prog_name << " --binary /path/to/binary --function-address address\n";
+}
+
+/**
+ * @brief prompts the user for a choice on the terminal
+ * @param choices a vector of choices
+ * @param prompt the prompt to display to the user
+ * @return an index into choices @p choices representing the user's choice
+ */
+int get_choice(const vector<string>& choices, const string& prompt) {
+  int choice = 0;
+  int highlight = 0;
+
+  while (true) {
+    clear();
+    mvprintw(0, 1, prompt.c_str());    
+    for (int i = 0; i < choices.size(); i++) {
+      if (i == highlight) {
+        attron(A_REVERSE);
+        mvprintw(i + 1, 1, choices[i].c_str());
+        attroff(A_REVERSE);
+      } else {
+        mvprintw(i + 1, 1, choices[i].c_str());
+      }
+    }
+
+    // Get user input
+    int c = getch();
+    switch (c) {
+      case KEY_UP:
+        highlight--;
+        if (highlight < 0) {
+          highlight = choices.size() - 1;
+        }
+        break;
+      case KEY_DOWN:
+        highlight++;
+        if (highlight >= choices.size()) {
+          highlight = 0;
+        }
+        break;
+      case '\n':
+        choice = highlight;
+        break;
+      default:
+        break;
+    }
+
+    if (c == '\n')
+      break;
+  }
+
+  return choice;
 }
 
 int main(int argc, char* argv[]) {
@@ -71,82 +127,80 @@ int main(int argc, char* argv[]) {
 
   // ask user for arguments
   {
-    /**
-     * first, ask for the type of current argument (multiple choice)
-     * then, there are two cases:
-     * 1) primitives: directly input the char, string, int, float, etc
-     * 2) pointers to structs/classes: hexedit arbitrary offsets, nestably
-     *   - each offset might contain a primitive, or another pointer to struct/class/vtable
-     * TODO: since this is annoying to do, maybe allow user to input a file with this information
-     */
+    list<uint64_t> args;
 
     initscr();
     clear();
     noecho();
     cbreak();  // disable line buffering
     curs_set(0); // hide the cursor
+    keypad(stdscr, TRUE); // enable arrow keys
 
-    // Enable arrow keys
-    keypad(stdscr, TRUE);
-
-    // Define options
-    const vector<string> options = {
+    const vector<string> choices = {
       "Primitive",
-      "Composite"
+      "Complex", // string, struct/class/raw memory
     };
 
-    int choice = 0;
-    while (true) {
-      clear();
-      mvprintw(0, 1, "Argument Type #1:");
+    int choice = get_choice(choices, "Argument #1 Type:");
 
-      int highlight = 0;
-      for (int i = 0; i < options.size(); ++i) {
-        if (i == highlight) {
-          attron(A_REVERSE);
-          mvprintw(i + 1, 1, options[i].c_str());
-          attroff(A_REVERSE);
-        } else {
-          mvprintw(i + 1, 1, options[i].c_str());
-        }
-      }
+    // clear the screen and print the user's choice
+    clear();
+    mvprintw(0, 0, "You chose: %s", choices[choice].c_str());
+    refresh();
+    getch();
 
-      // Get user input
-      int c = getch();
-      switch (c) {
-        case KEY_UP:
-          highlight--;
-          if (highlight < 0) {
-            highlight = options.size() - 1; // wrap around to bottom
-          }
+    if (choice == 0) {
+      const vector<string> choices = { "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "float", "double" };
+      switch (get_choice(choices, "Argument #1 Type:")) {
+        case 0:
+          int8_t val;
+          cin >> val;
           break;
-        case KEY_DOWN:
-          highlight++;
-          if (highlight >= options.size()) {
-            highlight = 0; // wrap around to top
-          }
+        case 1:
           break;
-        case '\n': // enter key
-          choice = highlight;
+        case 2:
+          break;
+        case 3:
+          break;
+        case 4:
+          break;
+        case 5:
+          break;
+        case 6:
+          break;
+        case 7:
+          break;
+        case 8:
+          break;
+        case 9:
           break;
         default:
           break;
       }
 
-      // If the user presses Enter, exit the loop
-      if (c == '\n')
-        break;
+      string value;
+      while (true) {
+        cin >> value;
+
+        if (cin.fail()) {
+          cin.clear();
+          cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
+          cout << "Invalid input. Please enter a valid unsigned integer: ";
+        } else {
+          cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear any remaining input
+          break;
+        }
+      }
+
+      clear();
+      mvprintw(0, 0, "You chose: %s", choices[choice].c_str());
+      refresh();
+    } else {
+
     }
 
-    // clear the screen and print the user's choice
-    clear();
-    mvprintw(0, 0, "You chose: %s", options[choice].c_str());
-    refresh();
-
-    getch();  // wait for user input
-
-    // end curses mode
-    endwin();
+    getch(); // wait for user input
+    endwin(); // end curses mode
   }
 
   /*
