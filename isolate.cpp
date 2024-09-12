@@ -3,6 +3,7 @@
 #include <iostream>
 #include <list>
 #include <sstream>
+#include <cstdint>
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
@@ -198,65 +199,86 @@ get_arg_value:
 
       try {
         switch (arg.type_tag_idx) {
-          case 0:
+          case 0: {
             int tmp = stoi(arg_value);
-            if (tmp >= -128 && tmp <= 127)
+            if (tmp >= INT8_MIN && tmp <= INT8_MAX)
               arg.data.i8_data = tmp;
             else
-              throw invalid_argument("value outside of int8_t bounds");
+              throw invalid_argument("Value outside of int8_t bounds. Try again.");
             break;
-          case 1:
+          }
+          case 1: {
             int tmp = stoi(arg_value);
-            if (tmp >= -65536 && tmp <= 65535)
-              arg.data.i8_data = tmp;
+            if (tmp >= INT16_MIN && tmp <= INT16_MAX)
+              arg.data.i16_data = tmp;
             else
-              throw invalid_argument("value outside of int16_t bounds");
+              throw invalid_argument("Value outside of int16_t bounds. Try again.");
             break;
-          case 2:
-            arg.data.i32_data = stoi(arg_value);
+          }
+          case 2: {
+            int tmp = stoi(arg_value);
+            if (tmp >= INT32_MIN && tmp <= INT32_MAX)
+              arg.data.i32_data = tmp;
+            else
+              throw invalid_argument("Value outside of int32_t bounds. Try again.");
             break;
-          case 3:
-            ss >> arg.data.i64_data;
+          }
+          case 3: {
+            long tmp = stoll(arg_value);
+            if (tmp >= INT64_MIN && tmp <= INT64_MAX)
+              arg.data.i64_data = tmp;
+            else
+              throw invalid_argument("Value outside of int64_t bounds. Try again.");
             break;
-          case 4:
-            ss >> arg.data.u8_data;
+          }
+          case 4: {
+            unsigned long tmp = stoul(arg_value);
+            if (tmp >= 0 && tmp <= UINT8_MAX)
+              arg.data.u8_data = tmp;
+            else
+              throw invalid_argument("Value outside of uint8_t bounds. Try again.");
             break;
-          case 5:
-            ss >> arg.data.u16_data;
+          }
+          case 5: {
+            unsigned long tmp = stoul(arg_value);
+            if (tmp >= 0 && tmp <= UINT16_MAX)
+              arg.data.u16_data = tmp;
+            else
+              throw invalid_argument("Value outside of uint16_t bounds. Try again.");
             break;
-          case 6:
-            ss >> arg.data.u32_data;
+          }
+          case 6: {
+            unsigned long tmp = stoull(arg_value);
+            if (tmp >= 0 && tmp <= UINT32_MAX)
+              arg.data.u32_data = tmp;
+            else
+              throw invalid_argument("Value outside of uint32_t bounds. Try again.");
             break;
+          }
           case 7:
-            ss >> arg.data.u64_data;
+            arg.data.u64_data = stoull(arg_value);
             break;
           case 8:
-            ss >> arg.data.float_data;
+            arg.data.float_data = stof(arg_value);
             break;
           case 9:
-            ss >> arg.data.double_data;
+            arg.data.double_data = stod(arg_value);
             break;
           default:
-            cerr << "Invalid argument type\n";
-            fflush(stderr);
+            endwin();
+            cerr << "Invalid argument type" << endl;
             exit(EXIT_FAILURE);
             break;
         }
-      } catch (const invalid_argument& ia) {
-
-      } catch (const out_of_range& oor) {
-        
-      }
-
-      if (ss.fail()) {
+      } catch (const exception& e) {
         clear();
-        printw("Invalid format! Press Enter to try again");
+        printw(e.what());
         refresh();
         getch();
         goto get_arg_value;
-      } else {
-        arguments.push_back(arg);
       }
+
+      arguments.push_back(arg);
     } else {
 
     }
@@ -264,8 +286,10 @@ get_arg_value:
     clear();
     refresh();
 
-    getch(); // wait for user input
-    endwin(); // end curses mode
+    getch();
+    endwin();
+
+    cout << g_argument_type_tags[arguments[0].type_tag_idx] << endl;
   }
 
   /*
