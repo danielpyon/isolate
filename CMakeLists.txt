@@ -12,3 +12,7 @@ add_executable(isolate isolate.cpp)
 
 target_link_libraries(isolate PRIVATE ${CURSES_LIBRARIES})
 target_include_directories(isolate PRIVATE ${CURSES_INCLUDE_DIR})
+
+if(APPLE)
+    target_link_options(isolate PRIVATE LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/Info.plist)
+endif()

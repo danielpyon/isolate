@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <ncurses.h>
 
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
+
 using namespace std;
 
 const vector<string> g_argument_type_tags = { "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "float", "double" };
@@ -162,10 +166,12 @@ int main(int argc, char* argv[]) {
     keypad(stdscr, TRUE); // enable arrow keys
 
     bool done = false;
-    int current_arg_num = 1;
+    int current_arg_num = 0;
     vector<ArgumentType> arguments;
 
     while (!done) {
+      current_arg_num++;
+
       const vector<string> choices = {
         "Primitive",
         "Complex", // string, struct/class/raw memory
@@ -174,7 +180,7 @@ int main(int argc, char* argv[]) {
       // Compute the prompt string for current argument type
       char* curr_arg_type_prompt;
       {
-        int sz = snprintf(nullptr, 0, "Argument #%d Type:  ", ++current_arg_num);
+        int sz = snprintf(nullptr, 0, "Argument #%d Type:  ", current_arg_num);
         curr_arg_type_prompt = new char[sz + 1];
         snprintf(curr_arg_type_prompt, sz, "Argument #%d Type:  ", current_arg_num);
       }
@@ -182,7 +188,7 @@ int main(int argc, char* argv[]) {
       // Compute the prompt string for current argument value
       char* curr_arg_value_prompt;
       {
-        int sz = snprintf(nullptr, 0, "Argument #%d Value:  ", ++current_arg_num);
+        int sz = snprintf(nullptr, 0, "Argument #%d Value:  ", current_arg_num);
         curr_arg_value_prompt = new char[sz + 1];
         snprintf(curr_arg_value_prompt, sz, "Argument #%d Value:  ", current_arg_num);
       }
@@ -310,6 +316,9 @@ int main(int argc, char* argv[]) {
         vector<string> choices { "No", "Yes" };
         done = get_choice(choices, "Done? ");
       }
+
+      delete[] curr_arg_type_prompt;
+      delete[] curr_arg_value_prompt;
     }
 
     endwin();
@@ -319,20 +328,20 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  /*
+
   // launch the debugger
-  {
+
+  if (1 == 2) {
     // allocate space for structs/classes, and set regs to correct values
 
-    char* argv[] = { "lldb", NULL };
-    char* envp[] = { term_cstr, NULL };
+    const char* argv[] = { "lldb", NULL };
+    const char* envp[] = { term_str, NULL };
 
     // TODO: multiarch support
-    if (execve("/usr/bin/lldb", argv, envp) < 0) {
+    if (execve("/usr/bin/lldb", const_cast<char* const*>(argv), const_cast<char* const*>(envp)) < 0) {
       perror("execve");
     }
   }
-  */
 
   return 1;
 }
