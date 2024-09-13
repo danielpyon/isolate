@@ -161,135 +161,149 @@ int main(int argc, char* argv[]) {
     curs_set(0); // hide the cursor
     keypad(stdscr, TRUE); // enable arrow keys
 
-    const vector<string> choices = {
-      "Primitive",
-      "Complex", // string, struct/class/raw memory
-    };
-
-    int choice = get_choice(choices, "Argument #1 Type:");
-
+    bool done = false;
+    int current_arg_num = 1;
     vector<ArgumentType> arguments;
-    if (choice == 0) {
-      ArgumentType arg(get_choice(g_argument_type_tags, "Argument #1 Type:"));
 
-      const char* arg_value_dialog = "Argument #1 Value: ";
-      string arg_value;
+    while (!done) {
+      const vector<string> choices = {
+        "Primitive",
+        "Complex", // string, struct/class/raw memory
+      };
 
-get_arg_value:
-      while (true) {
-        clear();
+      int choice = get_choice(choices, "Argument #1 Type:");
+      if (choice == 0) {
+        // Primitive arg type
 
-        mvprintw(0, 1, arg_value_dialog);
-        attron(A_REVERSE);
-        mvprintw(0, 1 + strlen(arg_value_dialog), "%s", arg_value.c_str());
-        attroff(A_REVERSE);
+        ArgumentType arg(get_choice(g_argument_type_tags, "Argument #1 Type:"));
 
-        int c = getch();
-        if (c == '\n')
+        const char* arg_value_dialog = "Argument #1 Value: ";
+        string arg_value;
+
+        while (true) { // while arg value not parsed
+          while (true) { // user input loop
+            clear();
+
+            mvprintw(0, 1, arg_value_dialog);
+            attron(A_REVERSE);
+            mvprintw(0, 1 + strlen(arg_value_dialog), "%s", arg_value.c_str());
+            attroff(A_REVERSE);
+
+            int c = getch();
+            if (c == '\n')
+              break;
+
+            if ((c == KEY_BACKSPACE || c == 127 || c == 8) && arg_value.length() > 0) {
+              arg_value.pop_back();
+            } else if (isnumber(c) || c == '.') {
+              arg_value.push_back(c);
+            }
+
+            refresh();
+          }
+
+          try {
+            switch (arg.type_tag_idx) {
+              case 0: {
+                int tmp = stoi(arg_value);
+                if (tmp >= INT8_MIN && tmp <= INT8_MAX)
+                  arg.data.i8_data = tmp;
+                else
+                  throw invalid_argument("Value outside of int8_t bounds. Try again.");
+                break;
+              }
+              case 1: {
+                int tmp = stoi(arg_value);
+                if (tmp >= INT16_MIN && tmp <= INT16_MAX)
+                  arg.data.i16_data = tmp;
+                else
+                  throw invalid_argument("Value outside of int16_t bounds. Try again.");
+                break;
+              }
+              case 2: {
+                int tmp = stoi(arg_value);
+                if (tmp >= INT32_MIN && tmp <= INT32_MAX)
+                  arg.data.i32_data = tmp;
+                else
+                  throw invalid_argument("Value outside of int32_t bounds. Try again.");
+                break;
+              }
+              case 3: {
+                long tmp = stoll(arg_value);
+                if (tmp >= INT64_MIN && tmp <= INT64_MAX)
+                  arg.data.i64_data = tmp;
+                else
+                  throw invalid_argument("Value outside of int64_t bounds. Try again.");
+                break;
+              }
+              case 4: {
+                unsigned long tmp = stoul(arg_value);
+                if (tmp >= 0 && tmp <= UINT8_MAX)
+                  arg.data.u8_data = tmp;
+                else
+                  throw invalid_argument("Value outside of uint8_t bounds. Try again.");
+                break;
+              }
+              case 5: {
+                unsigned long tmp = stoul(arg_value);
+                if (tmp >= 0 && tmp <= UINT16_MAX)
+                  arg.data.u16_data = tmp;
+                else
+                  throw invalid_argument("Value outside of uint16_t bounds. Try again.");
+                break;
+              }
+              case 6: {
+                unsigned long tmp = stoull(arg_value);
+                if (tmp >= 0 && tmp <= UINT32_MAX)
+                  arg.data.u32_data = tmp;
+                else
+                  throw invalid_argument("Value outside of uint32_t bounds. Try again.");
+                break;
+              }
+              case 7:
+                arg.data.u64_data = stoull(arg_value);
+                break;
+              case 8:
+                arg.data.float_data = stof(arg_value);
+                break;
+              case 9:
+                arg.data.double_data = stod(arg_value);
+                break;
+              default:
+                endwin();
+                cerr << "Invalid argument type" << endl;
+                exit(EXIT_FAILURE);
+                break;
+            }
+          } catch (const exception& e) {
+            clear();
+            printw(e.what());
+            refresh();
+            getch();
+            continue;
+          }
+
+          arguments.push_back(arg);
           break;
-
-        if ((c == KEY_BACKSPACE || c == 127 || c == 8) && arg_value.length() > 0) {
-          arg_value.pop_back();
-        } else if (isnumber(c) || c == '.') {
-          arg_value.push_back(c);
         }
+      } else {
 
-        refresh();
       }
 
-      try {
-        switch (arg.type_tag_idx) {
-          case 0: {
-            int tmp = stoi(arg_value);
-            if (tmp >= INT8_MIN && tmp <= INT8_MAX)
-              arg.data.i8_data = tmp;
-            else
-              throw invalid_argument("Value outside of int8_t bounds. Try again.");
-            break;
-          }
-          case 1: {
-            int tmp = stoi(arg_value);
-            if (tmp >= INT16_MIN && tmp <= INT16_MAX)
-              arg.data.i16_data = tmp;
-            else
-              throw invalid_argument("Value outside of int16_t bounds. Try again.");
-            break;
-          }
-          case 2: {
-            int tmp = stoi(arg_value);
-            if (tmp >= INT32_MIN && tmp <= INT32_MAX)
-              arg.data.i32_data = tmp;
-            else
-              throw invalid_argument("Value outside of int32_t bounds. Try again.");
-            break;
-          }
-          case 3: {
-            long tmp = stoll(arg_value);
-            if (tmp >= INT64_MIN && tmp <= INT64_MAX)
-              arg.data.i64_data = tmp;
-            else
-              throw invalid_argument("Value outside of int64_t bounds. Try again.");
-            break;
-          }
-          case 4: {
-            unsigned long tmp = stoul(arg_value);
-            if (tmp >= 0 && tmp <= UINT8_MAX)
-              arg.data.u8_data = tmp;
-            else
-              throw invalid_argument("Value outside of uint8_t bounds. Try again.");
-            break;
-          }
-          case 5: {
-            unsigned long tmp = stoul(arg_value);
-            if (tmp >= 0 && tmp <= UINT16_MAX)
-              arg.data.u16_data = tmp;
-            else
-              throw invalid_argument("Value outside of uint16_t bounds. Try again.");
-            break;
-          }
-          case 6: {
-            unsigned long tmp = stoull(arg_value);
-            if (tmp >= 0 && tmp <= UINT32_MAX)
-              arg.data.u32_data = tmp;
-            else
-              throw invalid_argument("Value outside of uint32_t bounds. Try again.");
-            break;
-          }
-          case 7:
-            arg.data.u64_data = stoull(arg_value);
-            break;
-          case 8:
-            arg.data.float_data = stof(arg_value);
-            break;
-          case 9:
-            arg.data.double_data = stod(arg_value);
-            break;
-          default:
-            endwin();
-            cerr << "Invalid argument type" << endl;
-            exit(EXIT_FAILURE);
-            break;
-        }
-      } catch (const exception& e) {
-        clear();
-        printw(e.what());
-        refresh();
-        getch();
-        goto get_arg_value;
+      clear();
+      refresh();
+
+      {
+        vector<string> choices { "No", "Yes" };
+        done = get_choice(choices, "Done? ");
       }
-
-      arguments.push_back(arg);
-    } else {
-
     }
 
-    clear();
-    refresh();
-
-    getch();
     endwin();
 
-    cout << g_argument_type_tags[arguments[0].type_tag_idx] << endl;
+    for (const auto& x : arguments) {
+      cout << g_argument_type_tags[x.type_tag_idx] << endl;
+    }
   }
 
   /*
