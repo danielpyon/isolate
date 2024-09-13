@@ -98,6 +98,18 @@ int get_choice(const vector<string>& choices, const string& prompt) {
 }
 
 int main(int argc, char* argv[]) {
+  mach_port_t task = 0;
+  long int pid = 0;
+  cin >> pid;
+
+  kern_return_t ret = task_for_pid(mach_task_self(), pid, &task);
+  if (ret != KERN_SUCCESS) {
+    printf("task_for_pid failed: %s\n", mach_error_string(ret));
+    return 0;
+  }
+  printf("%u\n", task);
+  return 0;
+
   // get the TERM env var
   char* term_str = nullptr;
   {
@@ -328,12 +340,10 @@ int main(int argc, char* argv[]) {
     }
   }
 
-
   // launch the debugger
-
+  // TODO: remove conditional
   if (1 == 2) {
     // allocate space for structs/classes, and set regs to correct values
-
     const char* argv[] = { "lldb", NULL };
     const char* envp[] = { term_str, NULL };
 
