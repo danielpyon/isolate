@@ -171,22 +171,35 @@ int main(int argc, char* argv[]) {
         "Complex", // string, struct/class/raw memory
       };
 
-      int choice = get_choice(choices, "Argument #1 Type:");
+      // Compute the prompt string for current argument type
+      char* curr_arg_type_prompt;
+      {
+        int sz = snprintf(nullptr, 0, "Argument #%d Type:  ", ++current_arg_num);
+        curr_arg_type_prompt = new char[sz + 1];
+        snprintf(curr_arg_type_prompt, sz, "Argument #%d Type:  ", current_arg_num);
+      }
+
+      // Compute the prompt string for current argument value
+      char* curr_arg_value_prompt;
+      {
+        int sz = snprintf(nullptr, 0, "Argument #%d Value:  ", ++current_arg_num);
+        curr_arg_value_prompt = new char[sz + 1];
+        snprintf(curr_arg_value_prompt, sz, "Argument #%d Value:  ", current_arg_num);
+      }
+
+      int choice = get_choice(choices, curr_arg_type_prompt);
       if (choice == 0) {
         // Primitive arg type
+        ArgumentType arg(get_choice(g_argument_type_tags, curr_arg_type_prompt));
 
-        ArgumentType arg(get_choice(g_argument_type_tags, "Argument #1 Type:"));
-
-        const char* arg_value_dialog = "Argument #1 Value: ";
         string arg_value;
-
         while (true) { // while arg value not parsed
           while (true) { // user input loop
             clear();
 
-            mvprintw(0, 1, arg_value_dialog);
+            mvprintw(0, 1, curr_arg_value_prompt);
             attron(A_REVERSE);
-            mvprintw(0, 1 + strlen(arg_value_dialog), "%s", arg_value.c_str());
+            mvprintw(0, 1 + strlen(curr_arg_value_prompt), "%s", arg_value.c_str());
             attroff(A_REVERSE);
 
             int c = getch();
