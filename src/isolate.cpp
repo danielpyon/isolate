@@ -11,6 +11,8 @@
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
+#include <sys/types.h>
+#include <sys/ptrace.h>
 #endif
 
 using namespace std;
@@ -98,16 +100,35 @@ int get_choice(const vector<string>& choices, const string& prompt) {
 }
 
 int main(int argc, char* argv[]) {
-  mach_port_t task = 0;
+  mach_port_t target_task_port = 0;
   long int pid = 0;
   cin >> pid;
-  cout << pid << endl;
-  kern_return_t ret = task_for_pid(mach_task_self(), pid, &task);
+  kern_return_t ret = task_for_pid(mach_task_self(), pid, &target_task_port)
+;
   if (ret != KERN_SUCCESS) {
     printf("task_for_pid failed: %s\n", mach_error_string(ret));
     return 0;
+  } else {
+    printf("%u\n", target_task_port);
   }
-  printf("%u\n", task);
+
+  exception_mask_t saved_masks[EXC_TYPES_COUNT];
+  mach_port_t saved_ports[EXC_TYPES_COUNT];
+  exception_behavior_t saved_behaviors[EXC_TYPES_COUNT];
+  thread_state_flavor_t saved_flavors[EXC_TYPES_COUNT];
+  mach_msg_type_number_t saved_exception_types_count;
+  task_get_exception_ports(target_task_port, EXC_MASK_ALL, saved_masks, &saved_exception_types_count, saved_ports, saved_behaviors, saved_flavors);
+
+  mach_port_name_t target_exception_port;
+  mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &target_exception_port);
+
+  mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
+  task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
+
+  ptrace(PT_ATTACHEXC, pid, 0, 0);
+
+  mach_port_deallocate(mach_task_self(), target_exception_port);
+
   return 0;
 
   // get the TERM env var
