@@ -1,3 +1,7 @@
+/**
+ * An example of a signed binary
+ */
+
 #include <iostream>
 
 int main() {

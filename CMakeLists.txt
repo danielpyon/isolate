@@ -9,10 +9,15 @@ find_package(Curses REQUIRED)
 
 # Add the executable
 add_executable(isolate src/isolate.cpp)
+add_executable(macos_test src/macos_test.cpp)
 
 target_link_libraries(isolate PRIVATE ${CURSES_LIBRARIES})
 target_include_directories(isolate PRIVATE ${CURSES_INCLUDE_DIR})
 
 if(APPLE)
     target_link_options(isolate PRIVATE LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/Info.plist)
+    add_custom_command(TARGET isolate
+        POST_BUILD
+        COMMAND /bin/sh -c "codesign -s isolate ./isolate"
+    )
 endif()

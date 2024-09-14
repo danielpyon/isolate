@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
   mach_port_t task = 0;
   long int pid = 0;
   cin >> pid;
-
+  cout << pid << endl;
   kern_return_t ret = task_for_pid(mach_task_self(), pid, &task);
   if (ret != KERN_SUCCESS) {
     printf("task_for_pid failed: %s\n", mach_error_string(ret));

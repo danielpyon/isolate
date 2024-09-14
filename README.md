@@ -18,7 +18,18 @@ To build:
 
 4. `make`
 
-Note: for MacOS, you need to self-sign the binary under test to enable ptrace-like functionality (TODO: write instructions for how to do that here)
+### MacOS specifics
+MacOS requires you to run a code-signed binary (with specific entitlements) as root in order to access functions like `task_for_pid()`. Therefore, you need to self-sign the binary to enable ptrace-like functionality. To do this, generate a cert using Keychain Access (name it `isolate`):
+
+1. Open Keychain Access > Certificate Assistant > Create a Certificate. Name it `isolate`.
+
+2. Click "Let me override defaults".
+
+3. Use defaults, except in the Extended Key Usage Extension menu, enable "Code Signing".
+
+4. Perform a normal build with CMake.
+
+NOTE: you must be root for this to work.
 
 ## Usage
 To use:
