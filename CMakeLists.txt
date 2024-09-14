@@ -16,8 +16,18 @@ target_include_directories(${TARGET} PRIVATE ${CURSES_INCLUDE_DIR})
 
 if(APPLE)
     target_link_options(${TARGET} PRIVATE LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/Info.plist)
+
+    set(CERT CACHE STRING "the name of the certificate for code-signing")
+
+    if(NOT DEFINED CERT OR CERT STREQUAL "")
+        message(FATAL_ERROR "CERT must be set to the name of the certificate for code-signing. Please set it using -DCERT=<value>.")
+    endif()
+
+    set(CODE_SIGN "codesign -s ${CERT} ./isolate")
+    message(STATUS "Signing with: ${CODE_SIGN}")
+
     add_custom_command(TARGET ${TARGET}
         POST_BUILD
-        COMMAND /bin/sh -c "codesign -s isolate ./isolate"
+        COMMAND /bin/sh -c ${CODE_SIGN} 
     )
 endif()
