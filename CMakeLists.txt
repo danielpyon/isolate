@@ -5,12 +5,10 @@ set(TARGET isolate)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-set(XNU_PATH "${CMAKE_SOURCE_DIR}/external/xnu")
-
 find_package(Curses REQUIRED)
 
 # Add the executable
-add_executable(${TARGET} src/isolate.cpp ${XNU_PATH}/osfmk/mach/mach_exc.defs)
+add_executable(${TARGET} src/isolate.cpp)
 
 target_link_libraries(${TARGET} PRIVATE ${CURSES_LIBRARIES})
 target_include_directories(${TARGET} PRIVATE ${CURSES_INCLUDE_DIR})
