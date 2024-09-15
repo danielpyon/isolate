@@ -9,13 +9,65 @@
 #include <stdlib.h>
 #include <ncurses.h>
 
+// TODO: linux support
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #include <sys/types.h>
 #include <sys/ptrace.h>
+extern "C" {
+  #include "mach_exc.h"
+}
 #endif
 
+extern "C" boolean_t mach_exc_server(mach_msg_header_t *InHeadP, mach_msg_header_t *OutHeadP);
+
 using namespace std;
+
+extern "C" kern_return_t catch_mach_exception_raise(
+  mach_port_t exception_port,
+  mach_port_t thread_port,
+  mach_port_t task_port,
+  exception_type_t exception_type,
+  mach_exception_data_t codes,
+  mach_msg_type_number_t num_codes)
+{
+  if (exception_type == EXC_SOFTWARE && codes[0] == EXC_SOFT_SIGNAL) {
+    if (codes[2] == SIGSTOP)
+      codes[2] = 0;
+    ptrace(PT_THUPDATE, 0, (caddr_t)(uintptr_t)thread_port, codes[2]);
+  }
+  return KERN_SUCCESS;
+}
+
+extern "C" kern_return_t catch_mach_exception_raise_state(
+  mach_port_t exception_port,
+  exception_type_t exception,
+  const mach_exception_data_t code,
+  mach_msg_type_number_t codeCnt,
+  int* flavor,
+  const thread_state_t old_state,
+  mach_msg_type_number_t old_stateCnt,
+  thread_state_t new_state,
+  mach_msg_type_number_t* new_stateCnt)
+{
+  return MACH_RCV_INVALID_TYPE;
+}
+
+extern "C" kern_return_t catch_mach_exception_raise_state_identity(
+  mach_port_t exception_port,
+  mach_port_t thread,
+  mach_port_t task,
+  exception_type_t exception,
+  mach_exception_data_t code,
+  mach_msg_type_number_t codeCnt,
+  int* flavor,
+  thread_state_t old_state,
+  mach_msg_type_number_t old_stateCnt,
+  thread_state_t new_state,
+  mach_msg_type_number_t* new_stateCnt)
+{
+  return MACH_RCV_INVALID_TYPE;
+}
 
 const vector<string> g_argument_type_tags = { "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "float", "double" };
 
@@ -103,8 +155,8 @@ int main(int argc, char* argv[]) {
   mach_port_t target_task_port = 0;
   long int pid = 0;
   cin >> pid;
-  kern_return_t ret = task_for_pid(mach_task_self(), pid, &target_task_port)
-;
+  kern_return_t ret = task_for_pid(mach_task_self(), pid, &target_task_port);
+
   if (ret != KERN_SUCCESS) {
     printf("task_for_pid failed: %s\n", mach_error_string(ret));
     return 0;
@@ -127,9 +179,9 @@ int main(int argc, char* argv[]) {
 
   ptrace(PT_ATTACHEXC, pid, 0, 0);
   /* wait indefinitely to receive an exception message */ 
-  wait_for_exception:
-  char req[128], rpl[128];            /* request and reply buffers */
-  mach_msg((mach_msg_header_t *)req,  /* receive buffer */
+wait_for_exception:
+  char req[128], rpl[128];           /* request and reply buffers */
+  mach_msg((mach_msg_header_t *)req, /* receive buffer */
           MACH_RCV_MSG,              /* receive message */
           0,                         /* size of send buffer */
           sizeof(req),               /* size of receive buffer */
@@ -138,19 +190,15 @@ int main(int argc, char* argv[]) {
           MACH_PORT_NULL);           /* notify port, unused */
   task_suspend(target_task_port);
 
-  if (kret_from_mach_msg == KERN_SUCCESS) {
-    /* mach_exc_server calls catch_mach_exception_raise */
-    boolean_t message_parsed_correctly = mach_exc_server((mach_msg_header_t *)req, (mach_msg_header_t *)rpl);
-    if (! message_parsed_correctly) {
-      kret_from_catch_mach_exception_raise = ((mig_reply_error_t *)rpl)->RetCode;
-    }
+  boolean_t message_parsed_correctly = mach_exc_server((mach_msg_header_t *)req, (mach_msg_header_t *)rpl);
+  if (!message_parsed_correctly) {
+    kern_return_t kret_from_catch_mach_exception_raise = ((mig_reply_error_t*)rpl)->RetCode;
   }
-
   task_resume(target_task_port);
 
   // reply to exception
   mach_msg_size_t send_sz = ((mach_msg_header_t *)rpl)->msgh_size;
-  mach_msg((mach_msg_header_t *)rpl,  /* send buffer */
+  mach_msg((mach_msg_header_t *)rpl, /* send buffer */
           MACH_SEND_MSG,             /* send message */
           send_sz,                   /* size of send buffer */
           0,                         /* size of receive buffer */
@@ -160,6 +208,7 @@ int main(int argc, char* argv[]) {
   goto wait_for_exception;
 
   mach_port_deallocate(mach_task_self(), target_exception_port);
+
   return 0;
 
   // get the TERM env var
