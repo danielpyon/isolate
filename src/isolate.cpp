@@ -126,9 +126,40 @@ int main(int argc, char* argv[]) {
   task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
 
   ptrace(PT_ATTACHEXC, pid, 0, 0);
+  /* wait indefinitely to receive an exception message */ 
+  wait_for_exception:
+  char req[128], rpl[128];            /* request and reply buffers */
+  mach_msg((mach_msg_header_t *)req,  /* receive buffer */
+          MACH_RCV_MSG,              /* receive message */
+          0,                         /* size of send buffer */
+          sizeof(req),               /* size of receive buffer */
+          target_exception_port,     /* port to receive on */
+          MACH_MSG_TIMEOUT_NONE,     /* wait indefinitely */
+          MACH_PORT_NULL);           /* notify port, unused */
+  task_suspend(target_task_port);
+
+  if (kret_from_mach_msg == KERN_SUCCESS) {
+    /* mach_exc_server calls catch_mach_exception_raise */
+    boolean_t message_parsed_correctly = mach_exc_server((mach_msg_header_t *)req, (mach_msg_header_t *)rpl);
+    if (! message_parsed_correctly) {
+      kret_from_catch_mach_exception_raise = ((mig_reply_error_t *)rpl)->RetCode;
+    }
+  }
+
+  task_resume(target_task_port);
+
+  // reply to exception
+  mach_msg_size_t send_sz = ((mach_msg_header_t *)rpl)->msgh_size;
+  mach_msg((mach_msg_header_t *)rpl,  /* send buffer */
+          MACH_SEND_MSG,             /* send message */
+          send_sz,                   /* size of send buffer */
+          0,                         /* size of receive buffer */
+          MACH_PORT_NULL,            /* port to receive on */
+          MACH_MSG_TIMEOUT_NONE,     /* wait indefinitely */
+          MACH_PORT_NULL);           /* notify port, unused */
+  goto wait_for_exception;
 
   mach_port_deallocate(mach_task_self(), target_exception_port);
-
   return 0;
 
   // get the TERM env var
