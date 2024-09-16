@@ -8,6 +8,8 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <ncurses.h>
+#include <signal.h>
+#include <unistd.h>
 
 // TODO: linux support
 #if defined(__APPLE__)
@@ -102,65 +104,6 @@ int get_choice(const vector<string>& choices, const string& prompt) {
 }
 
 int main(int argc, char* argv[]) {
-  mach_port_t target_task_port = 0;
-  long int pid = 0;
-  cin >> pid;
-  kern_return_t ret = task_for_pid(mach_task_self(), pid, &target_task_port);
-
-  if (ret != KERN_SUCCESS) {
-    printf("task_for_pid failed: %s\n", mach_error_string(ret));
-    return 0;
-  } else {
-    printf("%u\n", target_task_port);
-  }
-
-  exception_mask_t saved_masks[EXC_TYPES_COUNT];
-  mach_port_t saved_ports[EXC_TYPES_COUNT];
-  exception_behavior_t saved_behaviors[EXC_TYPES_COUNT];
-  thread_state_flavor_t saved_flavors[EXC_TYPES_COUNT];
-  mach_msg_type_number_t saved_exception_types_count;
-  task_get_exception_ports(target_task_port, EXC_MASK_ALL, saved_masks, &saved_exception_types_count, saved_ports, saved_behaviors, saved_flavors);
-
-  mach_port_name_t target_exception_port;
-  mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &target_exception_port);
-
-  mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
-  task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
-
-  ptrace(PT_ATTACHEXC, pid, 0, 0);
-  /* wait indefinitely to receive an exception message */ 
-wait_for_exception:
-  char req[128], rpl[128];           /* request and reply buffers */
-  mach_msg((mach_msg_header_t *)req, /* receive buffer */
-          MACH_RCV_MSG,              /* receive message */
-          0,                         /* size of send buffer */
-          sizeof(req),               /* size of receive buffer */
-          target_exception_port,     /* port to receive on */
-          MACH_MSG_TIMEOUT_NONE,     /* wait indefinitely */
-          MACH_PORT_NULL);           /* notify port, unused */
-  task_suspend(target_task_port);
-
-  boolean_t message_parsed_correctly = mach_exc_server((mach_msg_header_t *)req, (mach_msg_header_t *)rpl);
-  if (!message_parsed_correctly) {
-    kern_return_t kret_from_catch_mach_exception_raise = ((mig_reply_error_t*)rpl)->RetCode;
-  }
-  task_resume(target_task_port);
-
-  // reply to exception
-  mach_msg_size_t send_sz = ((mach_msg_header_t *)rpl)->msgh_size;
-  mach_msg((mach_msg_header_t *)rpl, /* send buffer */
-          MACH_SEND_MSG,             /* send message */
-          send_sz,                   /* size of send buffer */
-          0,                         /* size of receive buffer */
-          MACH_PORT_NULL,            /* port to receive on */
-          MACH_MSG_TIMEOUT_NONE,     /* wait indefinitely */
-          MACH_PORT_NULL);           /* notify port, unused */
-  goto wait_for_exception;
-
-  mach_port_deallocate(mach_task_self(), target_exception_port);
-
-  return 0;
-
   // get the TERM env var
   char* term_str = nullptr;
   {
@@ -375,10 +318,7 @@ wait_for_exception:
       clear();
       refresh();
 
-      {
-        vector<string> choices { "No", "Yes" };
-        done = get_choice(choices, "Done? ");
-      }
+      done = get_choice({"No", "Yes"}, "Done? ");
 
       delete[] curr_arg_type_prompt;
       delete[] curr_arg_value_prompt;
@@ -392,17 +332,110 @@ wait_for_exception:
   }
 
   // launch the debugger
-  // TODO: remove conditional
-  if (1 == 2) {
+  pid_t target_pid = fork();
+  if (target_pid == 0) {
+    ptrace(PT_TRACE_ME, 0, NULL, NULL);
+    raise(SIGSTOP);
+
     // allocate space for structs/classes, and set regs to correct values
     const char* argv[] = { "lldb", NULL };
     const char* envp[] = { term_str, NULL };
-
-    // TODO: multiarch support
     if (execve("/usr/bin/lldb", const_cast<char* const*>(argv), const_cast<char* const*>(envp)) < 0) {
       perror("execve");
+      exit(EXIT_FAILURE);
     }
+  } else {
+    // get the task port
+    mach_port_t target_task_port = 0;
+    {
+      kern_return_t ret = task_for_pid(mach_task_self(), target_pid, &target_task_port);
+      if (ret != KERN_SUCCESS) {
+        printf("task_for_pid failed: %s\n", mach_error_string(ret));
+        return 0;
+      } else {
+        printf("target_pid = %u\n", target_task_port);
+      }
+    }
+
+    // save exception ports
+    exception_mask_t saved_masks[EXC_TYPES_COUNT];
+    mach_port_t saved_ports[EXC_TYPES_COUNT];
+    exception_behavior_t saved_behaviors[EXC_TYPES_COUNT];
+    thread_state_flavor_t saved_flavors[EXC_TYPES_COUNT];
+    mach_msg_type_number_t saved_exception_types_count;
+    task_get_exception_ports(target_task_port, EXC_MASK_ALL, saved_masks, &saved_exception_types_count, saved_ports, saved_behaviors, saved_flavors);
+
+    waitpid(target_pid, &status, 0); // attach to child after SIGSTOP
+  }
+  return 0;
+
+  mach_port_t target_task_port = 0;
+  long int target_pid = 0;
+  cin >> target_pid;
+  kern_return_t ret = task_for_pid(mach_task_self(), target_pid, &target_task_port);
+
+  if (ret != KERN_SUCCESS) {
+    printf("task_for_pid failed: %s\n", mach_error_string(ret));
+    return 0;
+  } else {
+    printf("%u\n", target_task_port);
   }
 
-  return 1;
+  exception_mask_t saved_masks[EXC_TYPES_COUNT];
+  mach_port_t saved_ports[EXC_TYPES_COUNT];
+  exception_behavior_t saved_behaviors[EXC_TYPES_COUNT];
+  thread_state_flavor_t saved_flavors[EXC_TYPES_COUNT];
+  mach_msg_type_number_t saved_exception_types_count;
+  task_get_exception_ports(target_task_port, EXC_MASK_ALL, saved_masks, &saved_exception_types_count, saved_ports, saved_behaviors, saved_flavors);
+
+  mach_port_name_t target_exception_port;
+  mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &target_exception_port);
+
+  mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
+  task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
+
+  ptrace(PT_ATTACHEXC, target_pid, 0, 0);
+
+wait_for_exception:
+  char req[128], rpl[128];           /* request and reply buffers */
+  mach_msg((mach_msg_header_t *)req, /* receive buffer */
+          MACH_RCV_MSG,              /* receive message */
+          0,                         /* size of send buffer */
+          sizeof(req),               /* size of receive buffer */
+          target_exception_port,     /* port to receive on */
+          MACH_MSG_TIMEOUT_NONE,     /* wait indefinitely */
+          MACH_PORT_NULL);           /* notify port, unused */
+  task_suspend(target_task_port);
+
+  boolean_t message_parsed_correctly = mach_exc_server((mach_msg_header_t *)req, (mach_msg_header_t *)rpl);
+  if (!message_parsed_correctly) {
+    kern_return_t kret_from_catch_mach_exception_raise = ((mig_reply_error_t*)rpl)->RetCode;
+  }
+  task_resume(target_task_port);
+
+  // reply to exception
+  mach_msg_size_t send_sz = ((mach_msg_header_t *)rpl)->msgh_size;
+  mach_msg((mach_msg_header_t *)rpl, /* send buffer */
+          MACH_SEND_MSG,             /* send message */
+          send_sz,                   /* size of send buffer */
+          0,                         /* size of receive buffer */
+          MACH_PORT_NULL,            /* port to receive on */
+          MACH_MSG_TIMEOUT_NONE,     /* wait indefinitely */
+          MACH_PORT_NULL);           /* notify port, unused */
+  goto wait_for_exception;
+
+  // restore original exception ports
+  for (uint32_t i = 0; i < saved_exception_types_count; ++i)
+    task_set_exception_ports(target_task_port, saved_masks[i], saved_ports[i], saved_behaviors[i], saved_flavors[i]);
+
+  // process pending exceptions
+  kern_return_t kret_recv = 0;
+  while (kret_recv == 0) {
+    mach_msg((mach_msg_header_t *)rpl, MACH_SEND_MSG, send_sz, 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
+    kret_recv = mach_msg((mach_msg_header_t *)req, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, sizeof(req), target_exception_port, 1, MACH_PORT_NULL);
+  }
+  mach_port_deallocate(mach_task_self(), target_exception_port);
+
+  kill(target_pid, SIGKILL);
+  return 0;
 }
