@@ -4,7 +4,7 @@
 
 Currently supported platforms:
 
-* MacOS
+* MacOS (AARCH64)
 
 ## Installation
 To build:
