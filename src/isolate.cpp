@@ -345,10 +345,6 @@ int main(int argc, char* argv[]) {
     }
 
     endwin();
-
-    for (const auto& x : arguments) {
-      cout << g_argument_type_tags[x.type_tag_idx] << endl;
-    }
   }
 
   // launch the debugger
@@ -392,12 +388,10 @@ int main(int argc, char* argv[]) {
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &target_exception_port);
     mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
     task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
-    ptrace(PT_ATTACHEXC, target_pid, 0, 0);
+    // ptrace(PT_ATTACHEXC, target_pid, 0, 0);
 
     // observe child after it does execve (ie: on first instruction of child process)
-    cout << "here1" << endl;
-    waitpid(target_pid, &status, 0);
-    cout << "here2" << endl;
+    cout << "here" << endl;
 
     // print reg info about the first thread
     {
@@ -419,6 +413,8 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
     }
+    waitpid(target_pid,NULL,0);
+    exit(EXIT_SUCCESS);
 
     // resume child
     ptrace(PT_CONTINUE, target_pid, (caddr_t)function_addr, 0);
