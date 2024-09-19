@@ -191,7 +191,7 @@ int main(int argc, char* argv[]) {
     curs_set(0); // hide the cursor
     keypad(stdscr, TRUE); // enable arrow keys
 
-    bool done = false;
+    bool done = 1 - get_choice({"No", "Yes"}, "Any arguments? ");
     int current_arg_num = 0;
     vector<ArgumentType> arguments;
 
@@ -391,7 +391,6 @@ int main(int argc, char* argv[]) {
     // ptrace(PT_ATTACHEXC, target_pid, 0, 0);
 
     // observe child after it does execve (ie: on first instruction of child process)
-    cout << "here" << endl;
 
     // print reg info about the first thread
     {
@@ -408,26 +407,35 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
 
-      if ((ret = print_registers(thread_list[0])) != KERN_SUCCESS) {
+      arm_thread_state64_t state;
+      mach_msg_type_number_t state_count = ARM_THREAD_STATE64_COUNT;
+      ret = thread_get_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, &state_count);
+      if (ret != KERN_SUCCESS) {
+        cerr << "failed to get thread state" << endl;
+        exit(EXIT_FAILURE);
+      }
+
+      state.__pc = 0xdeadbeefcafe;
+      thread_set_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, state_count);
+
+      ret = print_registers(thread_list[0]);
+      if (ret != KERN_SUCCESS) {
         cerr << mach_error_string(ret) << endl;
         exit(EXIT_FAILURE);
       }
     }
-    waitpid(target_pid,NULL,0);
-    exit(EXIT_SUCCESS);
 
     // resume child
     ptrace(PT_CONTINUE, target_pid, (caddr_t)function_addr, 0);
+    // waitpid(target_pid, NULL, 0);
 
-    // wait for child to exit, then cleanup
-    waitpid(target_pid, NULL, 0);
+    cout << "here" << endl;
 
     // restore original exception ports
     for (uint32_t i = 0; i < saved_exception_types_count; ++i)
       task_set_exception_ports(target_task_port, saved_masks[i], saved_ports[i], saved_behaviors[i], saved_flavors[i]);
-
-    // process pending exceptions
     mach_port_deallocate(mach_task_self(), target_exception_port);
+
     kill(target_pid, SIGKILL);
   }
 
