@@ -427,7 +427,9 @@ int main(int argc, char* argv[]) {
     // resume child
     ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
     // ptrace(PT_CONTINUE, target_pid, (caddr_t)function_addr, 0);
+    waitpid(target_pid, NULL, 0);
 
+    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
     waitpid(target_pid, NULL, 0);
     cout << "here" << endl;
 
