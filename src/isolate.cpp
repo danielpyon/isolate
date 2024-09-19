@@ -388,7 +388,7 @@ int main(int argc, char* argv[]) {
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &target_exception_port);
     mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
     task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
-    // ptrace(PT_ATTACHEXC, target_pid, 0, 0);
+    ptrace(PT_ATTACHEXC, target_pid, 0, 0);
 
     // observe child after it does execve (ie: on first instruction of child process)
 
@@ -415,9 +415,8 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
 
-      state.__pc = 0xdeadbeefcafe;
-      thread_set_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, state_count);
-
+      // state.__pc = 0xdeadbeefcafe;
+      // thread_set_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, state_count);
       ret = print_registers(thread_list[0]);
       if (ret != KERN_SUCCESS) {
         cerr << mach_error_string(ret) << endl;
@@ -426,9 +425,10 @@ int main(int argc, char* argv[]) {
     }
 
     // resume child
-    ptrace(PT_CONTINUE, target_pid, (caddr_t)function_addr, 0);
-    // waitpid(target_pid, NULL, 0);
+    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
+    // ptrace(PT_CONTINUE, target_pid, (caddr_t)function_addr, 0);
 
+    waitpid(target_pid, NULL, 0);
     cout << "here" << endl;
 
     // restore original exception ports
