@@ -390,11 +390,8 @@ int main(int argc, char* argv[]) {
     task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
     ptrace(PT_ATTACHEXC, target_pid, 0, 0);
 
-    // observe child after it does execve (ie: on first instruction of child process)
-
-    // print reg info about the first thread
+    thread_act_array_t thread_list;
     {
-      thread_act_array_t thread_list;
       mach_msg_type_number_t thread_count;
       kern_return_t ret = task_threads(target_task_port, &thread_list, &thread_count);
       if (ret != KERN_SUCCESS) {
@@ -415,8 +412,13 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
 
-      // state.__pc = 0xdeadbeefcafe;
-      // thread_set_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, state_count);
+      state.__pc = (ino_t)function_addr;
+      ret = thread_set_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, state_count);
+      if (ret != KERN_SUCCESS) {
+        cerr << mach_error_string(ret) << endl;
+        exit(EXIT_FAILURE);
+      }
+
       ret = print_registers(thread_list[0]);
       if (ret != KERN_SUCCESS) {
         cerr << mach_error_string(ret) << endl;
@@ -424,14 +426,46 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    // resume child
+    // resume after PT_ATTACHEXC
     ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
-    // ptrace(PT_CONTINUE, target_pid, (caddr_t)function_addr, 0);
+
+    // stop at first instruction after execve
     waitpid(target_pid, NULL, 0);
 
+    /**
+     * we need to attach lldb to the target process, but only after the process
+     * is at the desired function with desired register/memory state
+     * 
+     * the way we do this is:
+     *   - 1) set first instruction of function to brk #0x1 (save old
+     *     instruction)
+     *   - 2) catch the exception in catch_mach_exception_raise
+     *   - 3) replace the brk with original instruction
+     *   - 4) launch a debugger
+     *   - 5) run ptrace(PT_CONTINUE)
+     */
+
+    /*
+    // launch a debugger and attach it to the process
+    pid_t debugger_pid = fork();
+    if (debugger_pid == 0) {
+      // lldb --one-line "process attach --pid 8596" --one-line "b 0x1029a7fa4" --one-line "continue" --one-line "register read"
+      const char* argv[] = { "lldb", "--one-line", "\"b main\"", "~/Downloads/a.out", NULL };
+      const char* envp[] = { term_str, NULL };
+      if (execve("lldb", const_cast<char* const*>(argv), const_cast<char* const*>(envp)) < 0) {
+        perror("execve");
+        exit(EXIT_FAILURE);
+      }
+    } else {
+      waitpid(debugger_pid, NULL, 0);
+    }
+    */
+
+    // resume execve child process
     ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
+
+    // stop when child finishes
     waitpid(target_pid, NULL, 0);
-    cout << "here" << endl;
 
     // restore original exception ports
     for (uint32_t i = 0; i < saved_exception_types_count; ++i)

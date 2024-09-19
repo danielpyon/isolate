@@ -1,4 +1,7 @@
+#include <iostream>
 #include "mach_exc_handlers.h"
+
+using namespace std;
 
 extern "C" kern_return_t catch_mach_exception_raise(
   mach_port_t exception_port,
@@ -11,6 +14,8 @@ extern "C" kern_return_t catch_mach_exception_raise(
   if (exception_type == EXC_SOFTWARE && codes[0] == EXC_SOFT_SIGNAL) {
     if (codes[2] == SIGSTOP)
       codes[2] = 0;
+
+    cout << "i am in the exception handler" << endl;
     ptrace(PT_THUPDATE, 0, (caddr_t)(uintptr_t)thread_port, codes[2]);
   }
   return KERN_SUCCESS;
