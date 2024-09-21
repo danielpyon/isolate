@@ -373,7 +373,7 @@ int main(int argc, char* argv[]) {
         printf("target_pid = %u\n", target_task_port);
       }
     }
-
+        
     // save exception ports
     exception_mask_t saved_masks[EXC_TYPES_COUNT];
     mach_port_t saved_ports[EXC_TYPES_COUNT];
@@ -401,6 +401,10 @@ int main(int argc, char* argv[]) {
     if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
       cout << "[parent]: SIGTRAP received" << endl;
     }
+
+    if (kill(target_pid, SIGSTOP) == -1)
+      perror("kill");
+    ptrace(PT_DETACH, target_pid, 0, 0);
 
     thread_act_array_t thread_list;
     {
@@ -474,6 +478,12 @@ int main(int argc, char* argv[]) {
           exit(EXIT_FAILURE);
         }
       }
+    }
+
+    ptrace(PT_ATTACHEXC, target_pid, 0, 0);
+    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
+    if (kill(target_pid, SIGCONT) == -1) {
+      perror("kill");
     }
 
     while (1) {
