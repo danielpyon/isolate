@@ -352,6 +352,7 @@ int main(int argc, char* argv[]) {
   if (target_pid == 0) {
     ptrace(PT_TRACE_ME, 0, NULL, 0);
     raise(SIGSTOP);
+    cout << "[child]: after SIGSTOP, before execve" << endl;
 
     // allocate space for structs/classes, and set regs to correct values
     const char* argv[] = { binary_path, NULL };
@@ -384,11 +385,22 @@ int main(int argc, char* argv[]) {
     // attach to child after SIGSTOP
     int status;
     waitpid(target_pid, &status, 0);
+    if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP) {
+      cout << "[parent]: child stopped, attaching now" << endl;
+    }
+
     mach_port_name_t target_exception_port;
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &target_exception_port);
     mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
     task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
+
     ptrace(PT_ATTACHEXC, target_pid, 0, 0);
+    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
+
+    waitpid(target_pid, &status, 0);
+    if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
+      cout << "[parent]: SIGTRAP received" << endl;
+    }
 
     thread_act_array_t thread_list;
     {
@@ -412,7 +424,7 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
 
-      state.__pc = (ino_t)function_addr;
+      // state.__pc = (ino_t)function_addr;
       ret = thread_set_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, state_count);
       if (ret != KERN_SUCCESS) {
         cerr << mach_error_string(ret) << endl;
@@ -424,7 +436,78 @@ int main(int argc, char* argv[]) {
         cerr << mach_error_string(ret) << endl;
         exit(EXIT_FAILURE);
       }
+
+      // TODO: handle ASLR
+      // set the first byte of the function to brk #0x1
+      {
+        // save old instruction
+        void* orig_inst;
+        mach_msg_type_number_t data_count = 4;
+        kern_return_t kr = vm_read(target_task_port, (vm_address_t)function_addr, (vm_size_t)4, (vm_offset_t*)&orig_inst, &data_count);
+        if (kr != KERN_SUCCESS) {
+          cerr << "vm_read failed: " << mach_error_string(kr) << endl;
+          exit(EXIT_FAILURE);
+        }
+        cout << "original instruction:" << endl;
+        for (int i = 0; i < 4; i++) {
+          cout << hex << ((char*)orig_inst)[i] << endl;
+        }
+
+        mach_vm_size_t page_size = getpagesize();
+        vm_address_t brk_addr = 0;
+        kr = vm_allocate(mach_task_self(), &brk_addr, page_size, VM_FLAGS_ANYWHERE);
+
+        if (kr != KERN_SUCCESS) {
+          cerr << "vm_allocate failed: " << mach_error_string(kr) << endl;
+          exit(EXIT_FAILURE);
+        }
+
+        *(char*)brk_addr = 0x20;
+        *(((char*)brk_addr) + 1) = 0x00;
+        *(((char*)brk_addr) + 2) = 0x20;
+        *(((char*)brk_addr) + 3) = 0xd4;
+        vm_write(target_task_port, (vm_address_t)function_addr, brk_addr, 4);
+
+        kr = vm_deallocate(mach_task_self(), brk_addr, page_size);
+        if (kr != KERN_SUCCESS) {
+          cerr << "vm_deallocate failed: " << mach_error_string(kr) << endl;
+          exit(EXIT_FAILURE);
+        }
+      }
     }
+
+    while (1) {
+      char req[128], rpl[128];
+      // this will block until an exception is received
+      printf("[parent] waiting for mach exception...\n");
+      mach_msg((mach_msg_header_t *)req, /* receive buffer */
+                          MACH_RCV_MSG,             /* receive message */
+                          0,                        /* size of send buffer */
+                          sizeof(req),              /* size of receive buffer */
+                          target_exception_port,           /* port to receive on */
+                          MACH_MSG_TIMEOUT_NONE,    /* wait indefinitely */
+                          MACH_PORT_NULL);         /* notify port, unused */
+
+      // we received an exception, so suspend all threads of the target process
+      // FIXME: this sometimes returns `MACH_SEND_INVALID_DEST`? ignored for now
+      task_suspend(target_task_port);
+      if (!mach_exc_server((mach_msg_header_t *)req, (mach_msg_header_t *)rpl)) {
+        exit(EXIT_FAILURE);
+      }
+      // we've parsed the exception and are ready to reply, resume the target process
+      // FIXME: this sometimes returns `MACH_SEND_INVALID_DEST`? ignored for now
+      task_resume(target_task_port);
+      // reply to the exception
+      mach_msg_size_t send_sz = ((mach_msg_header_t *)rpl)->msgh_size;
+      mach_msg((mach_msg_header_t *)rpl, /* send buffer */
+                          MACH_SEND_MSG,            /* send message */
+                          send_sz,                  /* size of send buffer */
+                          0,                        /* size of receive buffer */
+                          MACH_PORT_NULL,           /* port to receive on */
+                          MACH_MSG_TIMEOUT_NONE,    /* wait indefinitely */
+                          MACH_PORT_NULL);
+    }
+
 
     // resume after PT_ATTACHEXC
     ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
