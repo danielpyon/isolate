@@ -18,6 +18,7 @@
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #endif
 
 using namespace std;
@@ -344,7 +345,8 @@ int main(int argc, char* argv[]) {
           break;
         }
       } else {
-
+        // TODO: struct/class/raw memory
+        // handle just strings for now
       }
 
       clear();
@@ -362,7 +364,15 @@ int main(int argc, char* argv[]) {
   // launch the debugger
   pid_t target_pid = fork();
   if (target_pid == 0) {
-    const char* debugged_binary_path = "/tmp/a.out";
+    system("mkdir /tmp/isolate.app");
+    system("mkdir /tmp/isolate.app/Contents");
+    {
+      ifstream src("../Info.plist");
+      ofstream dst("/tmp/isolate.app/Contents/Info.plist");
+      dst << src.rdbuf();
+    }
+
+    const char* debugged_binary_path = "/tmp/isolate.app/Contents/a.out";
     ifstream src(binary_path, ios::binary);
     ofstream dst(debugged_binary_path, ios::binary);
     dst << src.rdbuf();
@@ -371,15 +381,26 @@ int main(int argc, char* argv[]) {
     long entry_point_offset = 0;
     {
       // TODO: prevent filesystem race by generating random file name
-      const string otool_output = exec("otool -l /tmp/a.out");
+      string otool_cmd = "otool -l ";
+      otool_cmd += debugged_binary_path;
+      const string otool_output = exec(otool_cmd.c_str());
+
       int entryoff = otool_output.find("entryoff ") + strlen("entryoff ");
       const string entryoff_line = otool_output.substr(entryoff);
       entry_point_offset = stoll(entryoff_line.substr(0, entryoff_line.find('\n')));
 
       // 14 00 00 00 -> branch rel offset 0
       dst.seekp(entry_point_offset);
-      const char branch[] = {0x14, 0x00, 0x00, 0x00};
+      const char branch[] = {0x00, 0x00, 0x00, 0x14};
       dst.write(branch, sizeof(branch));
+      dst.flush();
+
+      chmod(debugged_binary_path, 0555);
+      ostringstream oss;
+      oss << "codesign -s " << "isolate" << " " << "/tmp/isolate.app"; // TODO: fix this
+      cout << oss.str().c_str() << endl;
+
+      system(oss.str().c_str());
     }
   
     // allocate space for structs/classes, and set regs to correct values
@@ -390,6 +411,8 @@ int main(int argc, char* argv[]) {
       exit(EXIT_FAILURE);
     }
   } else {
+    sleep(3); // TODO: fix this
+
     // get the task port
     mach_port_t target_task_port = 0;
     {
@@ -415,10 +438,14 @@ int main(int argc, char* argv[]) {
     mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
     task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
 
-    waitpid(target_pid, nullptr, 0);
+    kern_return_t ret = task_suspend(target_task_port);
+    if (ret != KERN_SUCCESS) {
+      cerr << mach_error_string(ret) << endl;
+      exit(EXIT_FAILURE);
+    }
 
     thread_act_array_t thread_list;
-    if (1 == 2) {
+    {
       mach_msg_type_number_t thread_count;
       kern_return_t ret = task_threads(target_task_port, &thread_list, &thread_count);
       if (ret != KERN_SUCCESS) {
@@ -439,7 +466,7 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
 
-      // state.__pc = (ino_t)function_addr;
+      state.__pc = (ino_t)function_addr;
       ret = thread_set_state(thread_list[0], ARM_THREAD_STATE64, (thread_state_t)&state, state_count);
       if (ret != KERN_SUCCESS) {
         cerr << mach_error_string(ret) << endl;
@@ -452,9 +479,17 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
 
+      ret = task_resume(target_task_port);
+      if (ret != KERN_SUCCESS) {
+        cerr << mach_error_string(ret) << endl;
+        exit(EXIT_FAILURE);
+      }
+
+      waitpid(target_pid, nullptr, 0);
+
       // TODO: handle ASLR
       // set the first byte of the function to brk #0x1
-      {
+      if (1==2) {
         // save old instruction
         void* orig_inst;
         mach_msg_type_number_t data_count = 4;
