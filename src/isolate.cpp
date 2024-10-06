@@ -11,12 +11,10 @@
 #include <signal.h>
 #include <unistd.h>
 
-// TODO: linux support
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #include <sys/types.h>
 #include <sys/ptrace.h>
-#include "mach_exc_handlers.h"
 #endif
 
 using namespace std;
@@ -479,86 +477,6 @@ int main(int argc, char* argv[]) {
         }
       }
     }
-
-    ptrace(PT_ATTACHEXC, target_pid, 0, 0);
-    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
-    if (kill(target_pid, SIGCONT) == -1) {
-      perror("kill");
-    }
-
-    while (1) {
-      char req[128], rpl[128];
-      // this will block until an exception is received
-      printf("[parent] waiting for mach exception...\n");
-      mach_msg((mach_msg_header_t *)req, /* receive buffer */
-                          MACH_RCV_MSG,             /* receive message */
-                          0,                        /* size of send buffer */
-                          sizeof(req),              /* size of receive buffer */
-                          target_exception_port,           /* port to receive on */
-                          MACH_MSG_TIMEOUT_NONE,    /* wait indefinitely */
-                          MACH_PORT_NULL);         /* notify port, unused */
-
-      // we received an exception, so suspend all threads of the target process
-      // FIXME: this sometimes returns `MACH_SEND_INVALID_DEST`? ignored for now
-      task_suspend(target_task_port);
-      if (!mach_exc_server((mach_msg_header_t *)req, (mach_msg_header_t *)rpl)) {
-        exit(EXIT_FAILURE);
-      }
-      // we've parsed the exception and are ready to reply, resume the target process
-      // FIXME: this sometimes returns `MACH_SEND_INVALID_DEST`? ignored for now
-      task_resume(target_task_port);
-      // reply to the exception
-      mach_msg_size_t send_sz = ((mach_msg_header_t *)rpl)->msgh_size;
-      mach_msg((mach_msg_header_t *)rpl, /* send buffer */
-                          MACH_SEND_MSG,            /* send message */
-                          send_sz,                  /* size of send buffer */
-                          0,                        /* size of receive buffer */
-                          MACH_PORT_NULL,           /* port to receive on */
-                          MACH_MSG_TIMEOUT_NONE,    /* wait indefinitely */
-                          MACH_PORT_NULL);
-    }
-
-
-    // resume after PT_ATTACHEXC
-    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
-
-    // stop at first instruction after execve
-    waitpid(target_pid, NULL, 0);
-
-    /**
-     * we need to attach lldb to the target process, but only after the process
-     * is at the desired function with desired register/memory state
-     * 
-     * the way we do this is:
-     *   - 1) set first instruction of function to brk #0x1 (save old
-     *     instruction)
-     *   - 2) catch the exception in catch_mach_exception_raise
-     *   - 3) replace the brk with original instruction
-     *   - 4) launch a debugger
-     *   - 5) run ptrace(PT_CONTINUE)
-     */
-
-    /*
-    // launch a debugger and attach it to the process
-    pid_t debugger_pid = fork();
-    if (debugger_pid == 0) {
-      // lldb --one-line "process attach --pid 8596" --one-line "b 0x1029a7fa4" --one-line "continue" --one-line "register read"
-      const char* argv[] = { "lldb", "--one-line", "\"b main\"", "~/Downloads/a.out", NULL };
-      const char* envp[] = { term_str, NULL };
-      if (execve("lldb", const_cast<char* const*>(argv), const_cast<char* const*>(envp)) < 0) {
-        perror("execve");
-        exit(EXIT_FAILURE);
-      }
-    } else {
-      waitpid(debugger_pid, NULL, 0);
-    }
-    */
-
-    // resume execve child process
-    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
-
-    // stop when child finishes
-    waitpid(target_pid, NULL, 0);
 
     // restore original exception ports
     for (uint32_t i = 0; i < saved_exception_types_count; ++i)
