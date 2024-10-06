@@ -4,17 +4,20 @@
 #include <list>
 #include <sstream>
 #include <cstdint>
+#include <cstdio>
+#include <fstream>
+#include <memory>
+#include <stdexcept>
+#include <array>
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
 #include <ncurses.h>
 #include <signal.h>
 #include <unistd.h>
-
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #include <sys/types.h>
-#include <sys/ptrace.h>
 #endif
 
 using namespace std;
@@ -41,6 +44,17 @@ struct ArgumentType {
   ArgumentType() = delete;
   ~ArgumentType() {}
 };
+
+string exec(const char* cmd) {
+  array<char, 128> buffer;
+  string result;
+  unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+  if (!pipe)
+    throw runtime_error("popen() failed!");
+  while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr)
+    result += buffer.data();
+  return result;
+}
 
 /**
  * @brief prints program usage
@@ -348,12 +362,28 @@ int main(int argc, char* argv[]) {
   // launch the debugger
   pid_t target_pid = fork();
   if (target_pid == 0) {
-    ptrace(PT_TRACE_ME, 0, NULL, 0);
-    raise(SIGSTOP);
-    cout << "[child]: after SIGSTOP, before execve" << endl;
+    const char* debugged_binary_path = "/tmp/a.out";
+    ifstream src(binary_path, ios::binary);
+    ofstream dst(debugged_binary_path, ios::binary);
+    dst << src.rdbuf();
 
+    // entry point offset within file
+    long entry_point_offset = 0;
+    {
+      // TODO: prevent filesystem race by generating random file name
+      const string otool_output = exec("otool -l /tmp/a.out");
+      int entryoff = otool_output.find("entryoff ") + strlen("entryoff ");
+      const string entryoff_line = otool_output.substr(entryoff);
+      entry_point_offset = stoll(entryoff_line.substr(0, entryoff_line.find('\n')));
+
+      // 14 00 00 00 -> branch rel offset 0
+      dst.seekp(entry_point_offset);
+      const char branch[] = {0x14, 0x00, 0x00, 0x00};
+      dst.write(branch, sizeof(branch));
+    }
+  
     // allocate space for structs/classes, and set regs to correct values
-    const char* argv[] = { binary_path, NULL };
+    const char* argv[] = { debugged_binary_path, NULL };
     const char* envp[] = { term_str, NULL };
     if (execve(binary_path, const_cast<char* const*>(argv), const_cast<char* const*>(envp)) < 0) {
       perror("execve");
@@ -371,7 +401,7 @@ int main(int argc, char* argv[]) {
         printf("target_pid = %u\n", target_task_port);
       }
     }
-        
+
     // save exception ports
     exception_mask_t saved_masks[EXC_TYPES_COUNT];
     mach_port_t saved_ports[EXC_TYPES_COUNT];
@@ -380,32 +410,15 @@ int main(int argc, char* argv[]) {
     mach_msg_type_number_t saved_exception_types_count;
     task_get_exception_ports(target_task_port, EXC_MASK_ALL, saved_masks, &saved_exception_types_count, saved_ports, saved_behaviors, saved_flavors);
 
-    // attach to child after SIGSTOP
-    int status;
-    waitpid(target_pid, &status, 0);
-    if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP) {
-      cout << "[parent]: child stopped, attaching now" << endl;
-    }
-
     mach_port_name_t target_exception_port;
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &target_exception_port);
     mach_port_insert_right(mach_task_self(), target_exception_port, target_exception_port, MACH_MSG_TYPE_MAKE_SEND);
     task_set_exception_ports(target_task_port, EXC_MASK_ALL, target_exception_port, EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
 
-    ptrace(PT_ATTACHEXC, target_pid, 0, 0);
-    ptrace(PT_CONTINUE, target_pid, (caddr_t)1, 0);
-
-    waitpid(target_pid, &status, 0);
-    if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
-      cout << "[parent]: SIGTRAP received" << endl;
-    }
-
-    if (kill(target_pid, SIGSTOP) == -1)
-      perror("kill");
-    ptrace(PT_DETACH, target_pid, 0, 0);
+    waitpid(target_pid, nullptr, 0);
 
     thread_act_array_t thread_list;
-    {
+    if (1 == 2) {
       mach_msg_type_number_t thread_count;
       kern_return_t ret = task_threads(target_task_port, &thread_list, &thread_count);
       if (ret != KERN_SUCCESS) {
