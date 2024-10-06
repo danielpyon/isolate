@@ -1,5 +1,7 @@
 # isolate
 
+NOTE: I tried copying a signed binary but couldn't get it to work. If someone knows feel free to suggest how.
+
 `isolate` is a tool that helps you test functions in a binary individually. Functions that are nested in deep codepaths can be hard to test/debug, since triggering the codepath requires a very specific program state. In this case, given a binary, function within that binary, and concrete argument values, `isolate` will automatically launch a debugger at the desired function with memory/registers initialized to provided values.
 
 Currently supported platforms:
